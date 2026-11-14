@@ -1,0 +1,121 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Earth Trend Detective</title>
+  <script>window.CESIUM_BASE_URL = "https://cdn.jsdelivr.net/npm/cesium@1.145.0/Build/Cesium/";</script>
+  <script src="https://cdn.jsdelivr.net/npm/cesium@1.145.0/Build/Cesium/Cesium.js"></script>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/cesium@1.145.0/Build/Cesium/Widgets/widgets.css">
+  <script src="https://cdn.jsdelivr.net/npm/plotly.js-dist-min@2.35.2/plotly.min.js"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600&family=Geist+Mono:wght@400;500&display=swap">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header>
+    <div class="brand">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8.5"/><ellipse cx="12" cy="12" rx="3.6" ry="8.5"/><path d="M3.5 12h17"/></svg>
+      <h1>Earth Trend Detective</h1>
+      <button id="lang" type="button" lang="bn" title="Switch the interface language">বাংলা</button>
+    </div>
+    <div class="query">
+      <label class="field cases"><span class="lbl">Case files</span><select id="cases"><option value="">Pick a case…</option></select></label>
+      <label class="field wide"><span class="lbl">Variable</span><select id="variable"></select></label>
+      <div class="field" role="group" aria-labelledby="years-lbl">
+        <span class="lbl" id="years-lbl">Years</span>
+        <div class="pair">
+          <input id="from" type="number" min="1979" max="2026" step="1" aria-label="From year">
+          <span aria-hidden="true">to</span>
+          <input id="to" type="number" min="1979" max="2026" step="1" aria-label="To year">
+        </div>
+      </div>
+      <label class="field"><span class="lbl">Month</span><select id="month">
+        <option value="0">All year (annual mean)</option>
+        <option value="1">January</option><option value="2">February</option><option value="3">March</option>
+        <option value="4">April</option><option value="5">May</option><option value="6">June</option>
+        <option value="7">July</option><option value="8">August</option><option value="9">September</option>
+        <option value="10">October</option><option value="11">November</option><option value="12">December</option>
+      </select></label>
+      <label class="field"><span class="lbl">Box</span><select id="size">
+        <option value="2">2° (small)</option><option value="4" selected>4°</option><option value="6">6°</option><option value="10">10° (large)</option>
+      </select></label>
+    </div>
+  </header>
+
+  <main>
+    <div id="globe" aria-label="3D globe showing NASA imagery. Click a spot to investigate it.">
+      <div id="stamp" class="glass">
+        <div id="date">&nbsp;</div>
+        <p id="datesub"></p>
+      </div>
+      <div id="nav" class="glass">
+        <button id="zin" type="button" aria-label="Zoom in" title="Zoom in (+)"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg></button>
+        <button id="zout" type="button" aria-label="Zoom out" title="Zoom out (−)"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14"/></svg></button>
+        <button id="home" type="button" aria-label="Reset view" title="Reset view"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg></button>
+        <button id="mode" type="button" aria-label="Switch to 3D globe" title="Switch to 3D globe">3D</button>
+      </div>
+      <div id="key" class="glass">
+        <div id="legend"></div>
+        <label class="opacity"><span>Opacity</span><input id="opacity" type="range" min="0.3" max="1" step="0.05" value="0.85"></label>
+        <label id="cellkey" class="cellkey" hidden><input id="showcells" type="checkbox" checked> Trend of each grid cell
+          <span><i style="background:var(--up)"></i>rising <i style="background:var(--down)"></i>falling <i class="none"></i>not clear</span></label>
+      </div>
+      <div id="credit">Imagery: NASA GIBS · Borders &amp; places: Natural Earth</div>
+    </div>
+  </main>
+
+  <aside id="panel" class="idle" aria-live="polite">
+    <div id="region">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="7"/><circle cx="12" cy="12" r="1.5"/><path d="M12 2v4M12 18v4M2 12h4M18 12h4"/></svg>
+      <span id="hint">Click anywhere on the globe to investigate that spot.</span>
+      <button id="global" type="button" hidden>Whole Earth</button>
+    </div>
+    <section id="verdict" class="card" hidden></section>
+    <section id="compare" class="card" hidden></section>
+    <div id="counter" style="--i:1"></div>
+    <ul id="warnings" style="--i:2"></ul>
+    <section id="story" style="--i:3" hidden></section>
+    <section id="numbers" style="--i:4" hidden><h2>What the numbers show</h2><ul id="facts"></ul></section>
+    <section id="steady" style="--i:4" hidden></section>
+    <section id="witness" style="--i:5" hidden></section>
+    <section id="checkup" style="--i:5" hidden></section>
+    <section id="coach" style="--i:5" hidden>
+      <h2>Ask the coach</h2>
+      <div class="quick"><button type="button" data-q="Explain this result simply.">Explain this result simply</button>
+        <button type="button" data-q="এই ফলাফলটি সহজ বাংলায় বুঝিয়ে দাও।" data-lang="bn" lang="bn">বাংলায় বুঝিয়ে দাও</button></div>
+      <form id="askform"><input id="question" maxlength="500" placeholder="e.g. Is this caused by climate change?" aria-label="Your question">
+        <button type="submit">Ask</button></form>
+      <div id="answer" aria-live="polite"></div>
+      <p class="muted small">Answers are written by Claude (an AI from Anthropic) using only the numbers on this page. Check them against the chart.</p>
+    </section>
+    <section id="events" style="--i:5" hidden></section>
+    <details id="science" style="--i:6" hidden><summary>The science behind this</summary><ul id="details"></ul></details>
+    <section id="about">
+      <h2>About this layer</h2>
+      <p id="plain" class="muted"></p>
+      <p id="note" class="note" hidden></p>
+      <p id="res" class="muted"></p>
+      <p id="source" class="muted"></p>
+    </section>
+  </aside>
+
+  <footer>
+    <div id="controls">
+      <button id="play" type="button" aria-label="Play">
+        <svg class="i-play" viewBox="0 0 24 24" aria-hidden="true"><path d="M7.5 5.2v13.6L18.5 12z"/></svg>
+        <svg class="i-pause" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 5h3.5v14H7zM13.5 5H17v14h-3.5z"/></svg>
+      </button>
+      <input id="scrub" type="range" min="0" max="1" step="1" value="0" aria-label="Year">
+      <select id="speed" aria-label="Playback speed">
+        <option value="0.5">0.5 yr/s</option><option value="1" selected>1 yr/s</option><option value="2">2 yr/s</option><option value="4">4 yr/s</option>
+      </select>
+      <button id="pin" type="button" disabled title="Keep this result on the chart, then click another place or pick another variable">Compare</button>
+      <button id="csv" type="button" disabled title="Download the numbers behind the chart">CSV</button>
+    </div>
+    <div id="chart"></div>
+  </footer>
+  <script src="app.js"></script>
+</body>
+</html>

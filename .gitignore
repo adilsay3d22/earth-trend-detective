@@ -1,0 +1,15 @@
+# secrets: Earthdata / Anthropic keys live here, never in git
+.env
+.env.*
+
+# local environment and caches
+.venv/
+__pycache__/
+cache/
+*.nc4
+*.nc
+
+# teammates' original codebases (one contains its own .env), editor/tool folders
+*.zip
+.claude/
+.impeccable/
