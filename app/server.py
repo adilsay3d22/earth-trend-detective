@@ -26,6 +26,7 @@ CACHE = ROOT / "cache"
 CACHE.mkdir(exist_ok=True)
 _env = ROOT / ".env"
 ENV = dict(l.split("=", 1) for l in _env.read_text().splitlines() if "=" in l) if _env.exists() else {}
+ENV = {**ENV, **{k: v for k, v in __import__("os").environ.items() if k in ("ANTHROPIC_API_KEY", "GROQ_API_KEY", "GROQ_MODEL", "EARTHDATA_TOKEN")}}  # hosted: real env vars win
 EDL = {"Authorization": f"Bearer {ENV.get('EARTHDATA_TOKEN', '').strip()}"}
 CMR = "https://cmr.earthdata.nasa.gov/search/granules.umm_json"
 DATA = ROOT / "app" / "data"
@@ -506,8 +507,9 @@ Rules:
 def coach(q: dict):
     """AI coach (Claude), grounded only in numbers this server computed. Disclosed in the UI and the submission."""
     key = ENV.get("ANTHROPIC_API_KEY", "").strip()
-    if not key:
-        raise HTTPException(503, "The AI coach is switched off: add ANTHROPIC_API_KEY to the .env file on the server.")
+    gkey = ENV.get("GROQ_API_KEY", "").strip()
+    if not key and not gkey:
+        raise HTTPException(503, "The AI coach is switched off: set GROQ_API_KEY or ANTHROPIC_API_KEY on the server.")
     question = str(q.get("question", ""))[:500].strip() or "Explain this result simply."
     p = {k: q[k] for k in ("var", "lat", "lon", "size", "month", "start", "end") if k in q}
     t = trend(scope=q.get("scope", "box"), **p)  # recompute: never trust numbers sent by the browser
@@ -524,6 +526,21 @@ def coach(q: dict):
             ev["weather_station"] = {k: w.get(k) for k in ("station", "km", "slope_per_decade", "level", "none")}
         except Exception:  # the station check is a bonus; the coach still works without it
             pass
+    user_msg = (f"LANGUAGE: {'Bangla' if q.get('lang') == 'bn' else 'English'}\n"
+                f"EVIDENCE:\n{json.dumps(ev, ensure_ascii=False, default=float)}\n\nSTUDENT: {question}")
+    if gkey:  # Groq (free tier, OpenAI-compatible). Used first when its key is set.
+        try:
+            r = requests.post("https://api.groq.com/openai/v1/chat/completions",
+                              headers={"Authorization": f"Bearer {gkey}"}, timeout=40,
+                              json={"model": ENV.get("GROQ_MODEL", "openai/gpt-oss-20b"), "temperature": 0.3, "max_tokens": 700,
+                                    "messages": [{"role": "system", "content": COACH_SYSTEM}, {"role": "user", "content": user_msg}]})
+        except requests.RequestException:
+            raise HTTPException(502, "Could not reach the AI service. Try again in a moment.")
+        if r.status_code == 429:
+            raise HTTPException(429, "The AI coach is busy. Try again in a minute.")
+        if r.status_code != 200:
+            raise HTTPException(502, f"The AI service returned an error ({r.status_code}).")
+        return {"answer": (r.json()["choices"][0]["message"].get("content") or "").strip()}
     import anthropic  # only needed when the coach is used
     try:
         r = anthropic.Anthropic(api_key=key).beta.messages.create(
